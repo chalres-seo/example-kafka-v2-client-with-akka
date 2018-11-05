@@ -7,6 +7,9 @@ import com.typesafe.scalalogging.LazyLogging
 
 import scala.util.{Failure, Success, Try}
 
+/**
+  * Application helper utility.
+  */
 object AppUtils extends LazyLogging {
   def writeFile(savePathString: String, records: Vector[String], append: Boolean) = {
     val savePath = Paths.get(savePathString)

@@ -3,27 +3,18 @@ package com.example.akka.actor.kafka
 import akka.actor.{Actor, ActorRef, ActorSystem}
 import akka.testkit.TestProbe
 import com.example.akka.actor.kafka.AdminActor.ResponseTopicList
-import com.example.kafka.admin.Admin
+import com.example.kafka.admin.AdminClient
 import org.junit.{AfterClass, Assert, BeforeClass, Test}
 import org.hamcrest.CoreMatchers._
 
 import scala.concurrent.Await
 import scala.concurrent.duration.Duration
 import com.example.akka.actor.kafka.AdminActor._
+import com.example.utils.AppConfig
 
-class TestAdminClientActor {
-  private val testTopicName = TestAdminClientActor.testTopicName
-  private val testTopicPartitionCount = TestAdminClientActor.testTopicPartitionCount
-  private val testTopicReplicationFactor:Short = TestAdminClientActor.testTopicReplicationFactor
+import com.example.akka.actor.kafka.TestAdminActor._
 
-
-  private var testKafkaAdmin: Admin = TestAdminClientActor.testKafkaAdmin
-
-  private var testActorSystem: ActorSystem = TestAdminClientActor.testActorSystem
-  private var testActorProbe: TestProbe = TestAdminClientActor.testActorProbe
-
-  private var testAdminClientActor: ActorRef = TestAdminClientActor.testAdminClientActor
-
+class TestAdminActor {
   @Test
   def testCreateAndDeleteWithTopicListWithExistTopic(): Unit = {
     val testRequestId = 1
@@ -31,46 +22,47 @@ class TestAdminClientActor {
     val testTopicPartitionCount = 1
     val testTopicReplicationFactor: Short = 1
 
-    testAdminClientActor.tell(AdminActor.RequestTopicList(testRequestId), testActorProbe.ref)
+    testAdminActor.tell(AdminActor.RequestTopicList(testRequestId), testActorProbe.ref)
     Assert.assertThat(testActorProbe.expectMsgType[ResponseTopicList].topicNameList.contains(testTopicName), is(false))
 
-    testAdminClientActor.tell(AdminActor.RequestExistTopic(testRequestId, testTopicName), testActorProbe.ref)
+    testAdminActor.tell(AdminActor.RequestExistTopic(testRequestId, testTopicName), testActorProbe.ref)
     Assert.assertThat(testActorProbe.expectMsgType[ResponseExistTopic].result, is(false))
 
-    testAdminClientActor
+    testAdminActor
       .tell(AdminActor.CreateTopic(testTopicName, testTopicPartitionCount, testTopicReplicationFactor), Actor.noSender)
     testActorProbe.expectNoMessage()
 
-    testAdminClientActor.tell(AdminActor.RequestTopicList(testRequestId), testActorProbe.ref)
+    testAdminActor.tell(AdminActor.RequestTopicList(testRequestId), testActorProbe.ref)
     Assert.assertThat(testActorProbe.expectMsgType[ResponseTopicList].topicNameList.contains(testTopicName), is(true))
 
-    testAdminClientActor.tell(AdminActor.RequestExistTopic(testRequestId, testTopicName), testActorProbe.ref)
+    testAdminActor.tell(AdminActor.RequestExistTopic(testRequestId, testTopicName), testActorProbe.ref)
     Assert.assertThat(testActorProbe.expectMsgType[ResponseExistTopic].result, is(true))
 
-    testAdminClientActor
+    testAdminActor
       .tell(AdminActor.DeleteTopic(testTopicName), Actor.noSender)
     testActorProbe.expectNoMessage()
   }
 }
 
-private[this] object TestAdminClientActor {
-  private val testTopicName = "test-kafka-admin-client-actor"
-  private val testTopicPartitionCount = 3
-  private val testTopicReplicationFactor:Short = 3
+private object TestAdminActor {
+  val testTopicName = "test-kafka-admin-client-actor"
+  val testTopicPartitionCount = 3
+  val testTopicReplicationFactor:Short = 3
 
-  private var testKafkaAdmin: Admin = _
+  var testKafkaAdmin: AdminClient = _
 
-  private var testActorSystem: ActorSystem = _
-  private var testActorProbe: TestProbe = _
-  private var testAdminClientActor: ActorRef = _
+  var testActorSystem: ActorSystem = _
+  var testActorProbe: TestProbe = _
+
+  var testAdminActor: ActorRef = _
 
   @BeforeClass
   def beforeClass(): Unit = {
-    testKafkaAdmin = Admin()
+    testKafkaAdmin = AdminClient(AppConfig.getKafkaAdminProps)
 
     testActorSystem = ActorSystem.create("test-admin-client-actor")
     testActorProbe = TestProbe()(testActorSystem)
-    testAdminClientActor = testActorSystem.actorOf(AdminActor.props)
+    testAdminActor = testActorSystem.actorOf(AdminActor.props)
 
     this.deleteTestTopic()
     this.createTestTopic()

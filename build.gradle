@@ -54,7 +54,7 @@ dependencies {
 
 // Kafka
 dependencies {
-    compile group: 'org.apache.kafka', name: 'kafka_2.11', version: kafkaClientVersion
+    compile group: 'org.apache.kafka', name: 'kafka-clients', version: kafkaClientVersion
 }
 
 // Test

@@ -2,10 +2,15 @@ package com.example.akka.actor.kafka
 
 import java.util.Properties
 
+import akka.actor
 import akka.actor.{Actor, ActorLogging, Props}
-import com.example.kafka.admin.Admin
+import com.example.kafka.admin.AdminClient
 import com.example.utils.AppConfig
 import com.example.akka.actor.kafka.AdminActor._
+import akka.pattern.ask
+
+import scala.concurrent.Future
+import scala.collection.JavaConversions._
 
 object AdminActor {
   def props = akka.actor.Props(new AdminActor(AppConfig.getKafkaAdminProps))
@@ -24,11 +29,11 @@ object AdminActor {
 }
 
 class AdminActor(props: Properties) extends Actor with ActorLogging {
-  private var adminClient: Admin = _
+  private var adminClient: AdminClient = _
 
   override def preStart(): Unit = {
     log.info("kafka admin client start")
-    adminClient = Admin()
+    adminClient = AdminClient(AppConfig.getKafkaAdminProps)
   }
   override def postStop(): Unit = {
     log.info("kafka admin client stop")
@@ -44,16 +49,12 @@ class AdminActor(props: Properties) extends Actor with ActorLogging {
       log.info(s"delete topic. name: $topicName")
       adminClient.deleteTopic(topicName)
 
-//    case DeleteAllTopic() =>
-//      log.info("delete all topic.")
-//      adminClient.deleteAllTopics()
-
     case RequestExistTopic(requestId, topicName) =>
       log.info(s"check topic exist. name: $topicName")
       sender() ! ResponseExistTopic(requestId, adminClient.isExistTopic(topicName))
 
     case RequestTopicList(requestId) =>
       log.info("request topic list.")
-      sender() ! ResponseTopicList(requestId, adminClient.getTopicNameList.toSet)
+      sender() ! ResponseTopicList(requestId, adminClient.getTopicNameList.get.toSet)
   }
 }
