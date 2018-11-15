@@ -67,6 +67,4 @@
     <appender-ref ref="console-debug"/>
   </root>
 
-  <logger name="com.example" level="DEBUG" />
-
 </configuration>

@@ -28,8 +28,7 @@ class TestAdminActor {
     testAdminActor.tell(AdminActor.RequestExistTopic(testRequestId, testTopicName), testActorProbe.ref)
     Assert.assertThat(testActorProbe.expectMsgType[ResponseExistTopic].result, is(false))
 
-    testAdminActor
-      .tell(AdminActor.CreateTopic(testTopicName, testTopicPartitionCount, testTopicReplicationFactor), Actor.noSender)
+    testAdminActor.tell(AdminActor.CreateTopic(testTopicName, testTopicPartitionCount, testTopicReplicationFactor), Actor.noSender)
     testActorProbe.expectNoMessage()
 
     testAdminActor.tell(AdminActor.RequestTopicList(testRequestId), testActorProbe.ref)
@@ -38,58 +37,25 @@ class TestAdminActor {
     testAdminActor.tell(AdminActor.RequestExistTopic(testRequestId, testTopicName), testActorProbe.ref)
     Assert.assertThat(testActorProbe.expectMsgType[ResponseExistTopic].result, is(true))
 
-    testAdminActor
-      .tell(AdminActor.DeleteTopic(testTopicName), Actor.noSender)
+    testAdminActor.tell(AdminActor.DeleteTopic(testTopicName), Actor.noSender)
     testActorProbe.expectNoMessage()
   }
 }
 
 private object TestAdminActor {
-  val testTopicName = "test-kafka-admin-client-actor"
-  val testTopicPartitionCount = 3
-  val testTopicReplicationFactor:Short = 3
+  val testActorSystem: ActorSystem = ActorSystem.create("test-admin-client-actor")
+  val testActorProbe: TestProbe = TestProbe()(testActorSystem)
 
-  var testKafkaAdmin: AdminClient = _
-
-  var testActorSystem: ActorSystem = _
-  var testActorProbe: TestProbe = _
-
-  var testAdminActor: ActorRef = _
+  var testAdminActor: ActorRef = testActorSystem.actorOf(AdminActor.props(AppConfig.DEFAULT_KAFKA_ADMIN_PROPS))
 
   @BeforeClass
   def beforeClass(): Unit = {
-    testKafkaAdmin = AdminClient(AppConfig.getKafkaAdminProps)
-
-    testActorSystem = ActorSystem.create("test-admin-client-actor")
-    testActorProbe = TestProbe()(testActorSystem)
-    testAdminActor = testActorSystem.actorOf(AdminActor.props)
-
-    this.deleteTestTopic()
-    this.createTestTopic()
+    //nothing to do before unit test
   }
 
   @AfterClass
   def tearDownClass(): Unit = {
-    this.deleteTestTopic()
-
-    testKafkaAdmin.close()
     Await.result(testActorSystem.terminate(), Duration.Inf)
-  }
-
-  def deleteTestTopic(): Unit = {
-    testKafkaAdmin.deleteTopic(testTopicName).get
-    while (testKafkaAdmin.isExistTopic(testTopicName)) {
-      testKafkaAdmin.deleteTopic(testTopicName)
-      Thread.sleep(500)
-    }
-  }
-
-  def createTestTopic(): Unit = {
-    testKafkaAdmin.createTopic(testTopicName, testTopicPartitionCount, testTopicReplicationFactor).get
-    while (!testKafkaAdmin.isExistTopic(testTopicName)) {
-      testKafkaAdmin.createTopic(testTopicName, testTopicPartitionCount, testTopicReplicationFactor).get
-      Thread.sleep(500)
-    }
   }
 }
 

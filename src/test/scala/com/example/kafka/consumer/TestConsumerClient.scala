@@ -20,24 +20,25 @@ class TestConsumerClient {
 
   @Test
   def testConsumeRecords(): Unit = {
-    TestConsumerClient.produceTestRecordSet()
     testConsumerClient.subscribeTopic(testTopicName)
 
     @tailrec
-    def loop(consumerRecords: ConsumerRecords[Any, Any], result: util.Iterator[ConsumerRecord[Any, Any]]): util.Iterator[ConsumerRecord[Any, Any]] = {
+    def loop(consumerRecords: ConsumerRecords[Any, Any], consumedRecordList: util.Iterator[ConsumerRecord[Any, Any]]): util.Iterator[ConsumerRecord[Any, Any]] = {
       if (consumerRecords.isEmpty) {
         testConsumerClient.offsetCommit()
-        result
+        consumedRecordList
       } else {
-        val nextResult = testConsumerClient.consumeRecord
         testConsumerClient.offsetCommitAsync()
-        loop(nextResult, result ++ nextResult.iterator())
+        loop(testConsumerClient.consumeRecord, consumedRecordList ++ consumerRecords.iterator())
       }
     }
 
-    val result: ConsumerRecords[Any, Any] = testConsumerClient.consumeRecord
-    val consumeRecord: util.Iterator[ConsumerRecord[Any, Any]] = loop(result, result.iterator())
+    val consumeRecordForPrepare: util.Iterator[ConsumerRecord[Any, Any]] = loop(testConsumerClient.consumeRecord, Iterator.empty)
+    Assert.assertThat(consumeRecordForPrepare.length, is(0))
 
+    TestConsumerClient.produceTestRecordSet()
+
+    val consumeRecord: util.Iterator[ConsumerRecord[Any, Any]] = loop(testConsumerClient.consumeRecord, Iterator.empty)
     Assert.assertThat(consumeRecord.length, is(testProduceRecordSetCount))
   }
 }
@@ -53,9 +54,8 @@ object TestConsumerClient {
       new ProducerRecord(testTopicName, s"key-$i".asInstanceOf[Any], s"value-$i".asInstanceOf[Any])
     }.toVector
 
-  val testKafkaAdmin = AdminClient(AppConfig.getKafkaAdminProps)
-  val testProducerClient = ProducerClient(AppConfig.getKafkaProducerProps)
-
+  val testKafkaAdmin = AdminClient(AppConfig.createDefaultKafkaAdminProps)
+  val testProducerClient: ProducerClient[Any, Any] = ProducerClient[Any, Any](AppConfig.createDefaultKafkaProducerProps)
   var testConsumerClient: ConsumerClient[Any, Any] = _
 
   def produceTestRecordSet(): Unit = {
@@ -67,7 +67,7 @@ object TestConsumerClient {
 
   @BeforeClass
   def beforeClass(): Unit = {
-    testConsumerClient = ConsumerClient(AppConfig.getKafkaConsumerProps)
+    testConsumerClient = ConsumerClient(AppConfig.createDefaultKafkaConsumerProps)
 
     this.deleteTestTopic
     this.createTestTopic

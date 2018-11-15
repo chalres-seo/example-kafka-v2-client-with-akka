@@ -1,5 +1,6 @@
 package com.example.kafka.producer
 
+import java.util
 import java.util.Properties
 import java.util.concurrent.Future
 import java.util.concurrent.atomic.AtomicInteger
@@ -9,6 +10,7 @@ import com.example.utils.AppConfig
 import com.example.utils.AppConfig.KafkaClientType
 import com.typesafe.scalalogging.LazyLogging
 import org.apache.kafka.clients.producer._
+import org.apache.kafka.common.PartitionInfo
 
 import scala.collection.JavaConversions._
 
@@ -16,15 +18,18 @@ class ProducerClient[K, V](kafkaProducer: Producer[K, V], props: Properties) ext
   private val defaultProduceRecordCallback = ProducerClient.createDefaultProduceRecordCallBack
   private val producerMetrics = KafkaMetrics(kafkaProducer.metrics())
 
+  def getClientId: String = props.getProperty("client.id")
+  def getMetrics: KafkaMetrics = this.producerMetrics
+
   @throws[Exception]("failed produce record")
-  def produceRecord(record: ProducerRecord[K, V]): Future[RecordMetadata] = {
+  private def produceRecord(record: ProducerRecord[K, V]): Future[RecordMetadata] = {
     logger.debug(s"produce record to kafka. record: $record")
 
     kafkaProducer.send(record, defaultProduceRecordCallback)
   }
 
   @throws[Exception]("failed produce record")
-  def produceRecordWithCallback(record: ProducerRecord[K, V])
+  private def produceRecordWithCallback(record: ProducerRecord[K, V])
                     (fn: (RecordMetadata, Exception) => Unit): Future[RecordMetadata] = {
     logger.debug(s"produce single record to kafka. record: $record")
 
@@ -47,11 +52,15 @@ class ProducerClient[K, V](kafkaProducer: Producer[K, V], props: Properties) ext
     records.map(this.produceRecordWithCallback(_)(fn))
   }
 
-  def getProducerMetrics: KafkaMetrics = this.producerMetrics
-  def getProducerProperties: Properties = this.props
+  def getPartitionInfo(topicName: String): util.List[PartitionInfo] = {
+    logger.info("get partition info.")
+
+    kafkaProducer.partitionsFor(topicName)
+  }
 
   def close(): Unit = {
     logger.info("close kafka producer client.")
+
     kafkaProducer.close()
   }
 }
@@ -64,35 +73,34 @@ object ProducerClient extends LazyLogging {
     new ProducerClient(kafkaProducer, props)
   }
 
-  def apply[K, V](props: Properties): ProducerClient[Any, Any] = {
-    this.apply(this.createKafkaProducerClient(props), props)
+  def apply[K, V](props: Properties): ProducerClient[K, V] = {
+    val copyProps = AppConfig.copyProperties(props)
+
+    this.apply(this.createKafkaProducerClient[K, V](copyProps), copyProps)
   }
 
-  def produceRecordMetadataToMap(recordMetadata: RecordMetadata): Map[String, Any] = {
-    Map(
-      "offset" -> recordMetadata.offset(),
-      "partition" -> recordMetadata.partition(),
-      "timestamp" -> recordMetadata.timestamp(),
-      "topic" -> recordMetadata.topic()
-    )
+  def apply[K, V](props: Properties, clientId: String): ProducerClient[K, V] = {
+    val copyProps = AppConfig.copyProperties(props)
+
+    copyProps.setProperty("client.id", clientId)
+    this.apply(copyProps)
   }
 
-  private def createKafkaProducerClient(props: Properties): KafkaProducer[Any, Any] = {
-    this.setKafkaProducerClientId(props)
+  private def createKafkaProducerClient[K, V](props: Properties): KafkaProducer[K, V] = {
+    this.setAutoIncrementDefaultClientId(props)
 
     logger.info("create kafka producer client.")
     logger.info("kafka producer client configs:\n\t" + props.mkString("\n\t"))
 
-    new KafkaProducer[Any, Any](props)
+    new KafkaProducer[K, V](props)
   }
 
-  private def setKafkaProducerClientId(props: Properties): Unit = {
-    val kafkaProducerClient = props.getOrDefault("client.id",
-      defaultKafkaProducerClientPrefix) + "-" + kafkaProducerClientIdNum.getAndIncrement()
+  private def setAutoIncrementDefaultClientId(props: Properties): Unit = {
+    props.setProperty("client.id",
+      props.getOrDefault("client.id", defaultKafkaProducerClientPrefix)
+        + "-" + kafkaProducerClientIdNum.getAndIncrement())
 
-    logger.debug(s"set kafka producer client id. client.id: $kafkaProducerClient")
-
-    props.setProperty("client.id", kafkaProducerClient)
+    logger.debug(s"set kafka producer client id. client.id: ${props.getProperty("client.id")}")
   }
 
   private def createDefaultProduceRecordCallBack: Callback = {
@@ -110,4 +118,12 @@ object ProducerClient extends LazyLogging {
     }
   }
 
+  def produceRecordMetadataToMap(recordMetadata: RecordMetadata): Map[String, String] = {
+    Map(
+      "offset" -> recordMetadata.offset().toString,
+      "partition" -> recordMetadata.partition().toString,
+      "timestamp" -> recordMetadata.timestamp().toString,
+      "topic" -> recordMetadata.topic()
+    )
+  }
 }

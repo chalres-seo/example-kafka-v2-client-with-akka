@@ -12,6 +12,8 @@ import com.example.kafka.admin.TestKafkaAdminClient._
 import com.example.utils.AppConfig
 import org.apache.kafka.common.errors.UnknownTopicOrPartitionException
 
+import scala.collection.JavaConversions._
+
 class TestKafkaAdminClient extends LazyLogging {
   @(Rule @getter)
   val exceptions: ExpectedException = rules.ExpectedException.none
@@ -21,11 +23,14 @@ class TestKafkaAdminClient extends LazyLogging {
     val testCreateDeleteTopicName = "test-create-and-delete"
 
     testAdminClient.deleteTopic(testCreateDeleteTopicName).get
+    testAdminClient.deleteTopic(testCreateDeleteTopicName).get
     Assert.assertThat(testAdminClient.isExistTopic(testCreateDeleteTopicName), is(false))
+    testAdminClient.createTopic(testCreateDeleteTopicName, 1, 1).get
     testAdminClient.createTopic(testCreateDeleteTopicName, 1, 1).get
     Assert.assertThat(testAdminClient.isExistTopic(testCreateDeleteTopicName), is(true))
     Assert.assertThat(testAdminClient.getTopicNameList.get.contains(testCreateDeleteTopicName), is(true))
 
+    testAdminClient.deleteTopic(testCreateDeleteTopicName).get
     testAdminClient.deleteTopic(testCreateDeleteTopicName).get
     Assert.assertThat(testAdminClient.isExistTopic(testCreateDeleteTopicName), is(false))
     Assert.assertThat(testAdminClient.getTopicNameList.get.contains(testCreateDeleteTopicName), is(false))
@@ -39,6 +44,14 @@ class TestKafkaAdminClient extends LazyLogging {
     exceptions.expectCause(isA(classOf[UnknownTopicOrPartitionException]))
     testAdminClient.describeTopic(testDescribeTopicName).get
   }
+
+  @Test
+  def testGetTopicPartitionInfo(): Unit = {
+    val topicPartitionInfo = testAdminClient.getTopicPartitionInfo(testTopicName).get
+
+    Assert.assertThat(topicPartitionInfo.size(), is(testTopicPartitionCount))
+    Assert.assertThat(topicPartitionInfo.head.replicas().size(), is(testTopicReplicationFactor.toInt))
+  }
 }
 
 object TestKafkaAdminClient {
@@ -46,12 +59,10 @@ object TestKafkaAdminClient {
   val testTopicPartitionCount = 3
   val testTopicReplicationFactor:Short = 3
 
-  var testAdminClient: AdminClient = _
+  var testAdminClient: AdminClient = AdminClient(AppConfig.DEFAULT_KAFKA_ADMIN_PROPS)
 
   @BeforeClass
   def beforeClass(): Unit = {
-    testAdminClient = AdminClient(AppConfig.getKafkaAdminProps)
-
     testAdminClient.deleteTopic(testTopicName).get
     testAdminClient.createTopic(testTopicName, testTopicPartitionCount, testTopicReplicationFactor).get
   }

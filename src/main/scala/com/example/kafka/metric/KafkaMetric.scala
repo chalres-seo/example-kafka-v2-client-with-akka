@@ -1,7 +1,5 @@
 package com.example.kafka.metric
 
-import java.util
-
 import com.typesafe.scalalogging.LazyLogging
 import org.apache.kafka.common.{Metric, MetricName}
 import org.joda.time.DateTime

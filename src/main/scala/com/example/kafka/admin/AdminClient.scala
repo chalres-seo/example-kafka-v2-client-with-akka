@@ -2,51 +2,48 @@ package com.example.kafka.admin
 
 import java.util
 import java.util.Properties
-import java.util.concurrent.ExecutionException
 import java.util.concurrent.atomic.AtomicInteger
 
 import com.example.utils.AppConfig
 import com.example.utils.AppConfig.KafkaClientType
 import com.typesafe.scalalogging.LazyLogging
 import org.apache.kafka.clients.admin._
-import org.apache.kafka.common.errors.UnknownTopicOrPartitionException
-import org.apache.kafka.common.KafkaFuture
+import org.apache.kafka.common.{KafkaFuture, TopicPartitionInfo}
 
 import scala.collection.JavaConverters._
 import scala.collection.JavaConversions._
 
+/**
+  * Kafka admin client implements class.
+  *
+  * @see [[KafkaAdminClient]]
+  * @see [[AdminClient]]
+  *
+  * @param kafkaAdminClient kafka admin client.
+  * @param props kafka admin properties.
+  */
 class AdminClient(kafkaAdminClient: KafkaAdminClient, props: Properties) extends LazyLogging {
-  private val dummyKafkaFuture: KafkaFuture[Void] = KafkaFuture.completedFuture(null)
+  private val dummyKafkaFuture: KafkaFuture[Void] = KafkaFutureVariation.dummyKafkaCompletedFuture
 
-  @throws[ExecutionException]("failed get describe topic.")
-  @throws[UnknownTopicOrPartitionException]("topic is not exist.")
+  def getClientId: String = props.getProperty("client.id")
+
+  @throws[Exception]
   def describeTopic(name: String): KafkaFuture[util.Map[String, TopicDescription]] = {
     logger.info(s"get describe topic. name: $name")
 
-    kafkaAdminClient
-      .describeTopics(util.Collections.singletonList(name))
-      .all
+    kafkaAdminClient.describeTopics(util.Collections.singletonList(name)).all
   }
 
-  @throws[ExecutionException]("failed get describe topic.")
-  @throws[UnknownTopicOrPartitionException]("topic is not exist.")
+  @throws[Exception]
   def describeTopics(nameList: Vector[String]): util.Map[String, KafkaFuture[TopicDescription]] = {
-    logger.info("get describe topics. name list:\n" + nameList.mkString("\n\t"))
+    logger.info("get describe topics. name list: " + nameList.mkString(", "))
 
-    kafkaAdminClient
-      .describeTopics(nameList.asJava)
-      .values()
+    kafkaAdminClient.describeTopics(nameList.asJava).values()
   }
 
-  @throws[ExecutionException]("failed get topic list.")
+  @throws[Exception]
   def getTopicNameList: KafkaFuture[util.Set[String]] = {
-    kafkaAdminClient
-      .listTopics()
-      .names()
-  }
-
-  private def getTopicNameListFromKafka: KafkaFuture[util.Set[String]] = {
-    logger.info("get topic name list from kafka.")
+    logger.info("get topic name list.")
 
     kafkaAdminClient.listTopics().names()
   }
@@ -61,11 +58,12 @@ class AdminClient(kafkaAdminClient: KafkaAdminClient, props: Properties) extends
     }
   }
 
-  @throws[ExecutionException]("failed create topic.")
+  @throws[Exception]
   def createTopic(name: String, partitionCount: Int, replicationFactor: Short): KafkaFuture[Void] = {
     logger.info(s"create topic. name: $name, partition count: $partitionCount, replication factor: $replicationFactor")
 
     if (this.isExistTopic(name)) {
+      logger.info(s"create topic is already exist. name: $name")
       dummyKafkaFuture
     } else {
       KafkaFutureVariation.whenComplete {
@@ -77,13 +75,14 @@ class AdminClient(kafkaAdminClient: KafkaAdminClient, props: Properties) extends
           logger.info(s"succeed create topic. name: $name")
         } else {
           logger.error(s"failed create topic. name: $name", exception)
+          throw exception
         }
       }
     }
 
   }
 
-  @throws[ExecutionException]("failed delete topic.")
+  @throws[Exception]
   def deleteTopic(name: String): KafkaFuture[Void] = {
     logger.info(s"delete topic. name: $name")
 
@@ -97,22 +96,47 @@ class AdminClient(kafkaAdminClient: KafkaAdminClient, props: Properties) extends
           logger.info(s"succeed delete topic. name: $name")
         } else {
           logger.error(s"failed delete topic. name: $name", exception)
+          throw exception
         }
       }
     } else {
+      logger.info(s"delete topic is not exist. name: $name")
       dummyKafkaFuture
     }
   }
 
+  @throws[Exception]
+  def getTopicPartitionInfo(topicName: String): KafkaFuture[util.List[TopicPartitionInfo]] = {
+    KafkaFutureVariation.thenApply {
+      this.describeTopic(topicName)
+    } {
+      describeTopicResult => describeTopicResult(topicName).partitions()
+    }
+  }
+
+  @throws[Exception]
   def close(): Unit = {
     kafkaAdminClient.close()
   }
 }
 
-
 object AdminClient extends LazyLogging {
   private val defaultKafkaAdminClientPrefix = AppConfig.getKafkaClientPrefix(KafkaClientType.admin)
   private val kafkaAdminClientIdNum = new AtomicInteger(1)
+
+  def apply(props: Properties): AdminClient = {
+    val copyProps = AppConfig.copyProperties(props)
+
+    this.setAutoIncrementDefaultClientId(copyProps)
+    new AdminClient(this.createKafkaAdminClient(copyProps), copyProps)
+  }
+
+  def apply(props: Properties, clientId: String): AdminClient = {
+    val copyProps = AppConfig.copyProperties(props)
+
+    copyProps.setProperty("client.id", clientId)
+    new AdminClient(this.createKafkaAdminClient(copyProps), copyProps)
+  }
 
   private def createKafkaAdminClient(props: Properties): KafkaAdminClient = {
     logger.info("create kafka admin client.")
@@ -120,14 +144,11 @@ object AdminClient extends LazyLogging {
     org.apache.kafka.clients.admin.AdminClient.create(props).asInstanceOf[KafkaAdminClient]
   }
 
-  private def setKafkaAdminClientId(props: Properties): Unit = {
+  private def setAutoIncrementDefaultClientId(props: Properties): Unit = {
     props.setProperty("client.id",
       props.getOrDefault("client.id", defaultKafkaAdminClientPrefix)
         + "-" + kafkaAdminClientIdNum.getAndIncrement())
-  }
 
-  def apply(props: Properties): AdminClient = {
-    this.setKafkaAdminClientId(props)
-    new AdminClient(this.createKafkaAdminClient(props), props)
+    logger.debug(s"set kafka admin client id. client.id: ${props.getProperty("client.id")}")
   }
 }

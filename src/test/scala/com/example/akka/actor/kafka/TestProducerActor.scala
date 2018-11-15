@@ -1,6 +1,6 @@
 package com.example.akka.actor.kafka
 
-import akka.actor.{Actor, ActorRef, ActorSystem}
+import akka.actor.{ActorRef, ActorSystem}
 import akka.testkit.TestProbe
 import com.example.akka.actor.kafka.ProducerActor._
 import com.example.kafka.admin.AdminClient
@@ -11,7 +11,6 @@ import org.hamcrest.CoreMatchers._
 import scala.concurrent.Await
 import scala.concurrent.duration.Duration
 import com.example.akka.actor.kafka.TestProducerActor._
-import com.example.kafka.producer.ProducerClient
 import org.apache.kafka.clients.producer.ProducerRecord
 
 class TestProducerActor {
@@ -19,14 +18,20 @@ class TestProducerActor {
 
   @Test
   def testProduceRecord(): Unit = {
-    testProducerActor.tell(RequestProduceRecord(testRequestId, testProduceRecordSet(0)), testActorProbe.ref)
-    val result = testActorProbe.expectMsgType[ResponseProduceRecord].recordMetadata.get
+    testProducerActor.tell(RequestProduceRecords(testRequestId, Vector(testProduceRecordSet(0))), testActorProbe.ref)
+    val result = testActorProbe.expectMsgType[ResponseProduceRecords[Any, Any]]
 
-    Assert.assertThat(result.hasOffset, is(true))
-    Assert.assertThat(result.hasTimestamp, is(true))
-    Assert.assertThat(result.offset(), is(0L))
-    Assert.assertThat(result.partition(), is(0))
-    Assert.assertThat(result.topic(), is(testTopicName))
+    Assert.assertThat(result.remainedRecords.length, is(0))
+    Assert.assertThat(result.recordsMetadata.length, is(1))
+    Assert.assertThat(result.recordsMetadata.count(_.topic() == testTopicName), is(1))
+
+    val resultRecord = result.recordsMetadata.head
+
+    Assert.assertThat(resultRecord.hasOffset, is(true))
+    Assert.assertThat(resultRecord.hasTimestamp, is(true))
+    Assert.assertThat(resultRecord.offset(), is(0L))
+    Assert.assertThat(resultRecord.partition(), is(0))
+    Assert.assertThat(resultRecord.topic(), is(testTopicName))
   }
 
   @Test
@@ -45,13 +50,12 @@ object TestProducerActor {
   val testTopicPartitionCount = 3
   val testTopicReplicationFactor:Short = 3
 
-  var testKafkaAdmin: AdminClient = _
+  val testAdminClient: AdminClient = AdminClient(AppConfig.createDefaultKafkaAdminProps)
 
-  var testActorSystem: ActorSystem = _
-  var testActorProbe: TestProbe = _
+  var testActorSystem: ActorSystem = ActorSystem.create("test-producer-client-actor")
+  var testActorProbe: TestProbe = TestProbe()(testActorSystem)
 
-  var testAdminActor: ActorRef = _
-  var testProducerActor: ActorRef = _
+  var testProducerActor: ActorRef = testActorSystem.actorOf(ProducerActor.props(AppConfig.DEFAULT_KAFKA_PRODUCER_PROPS))
 
   val testProduceRecordSetCount = 100
   val testProduceRecordSet: Vector[ProducerRecord[Any, Any]] =
@@ -61,14 +65,6 @@ object TestProducerActor {
 
   @BeforeClass
   def beforeClass(): Unit = {
-    testKafkaAdmin = AdminClient(AppConfig.getKafkaAdminProps)
-
-    testActorSystem = ActorSystem.create("test-producer-client-actor")
-    testActorProbe = TestProbe()(testActorSystem)
-
-    testAdminActor = testActorSystem.actorOf(AdminActor.props)
-    testProducerActor = testActorSystem.actorOf(ProducerActor.props)
-
     this.deleteTestTopic()
     this.createTestTopic()
   }
@@ -77,23 +73,26 @@ object TestProducerActor {
   def tearDownClass(): Unit = {
     this.deleteTestTopic()
 
-    testKafkaAdmin.close()
+    testAdminClient.close()
     Await.result(testActorSystem.terminate(), Duration.Inf)
   }
 
-  def deleteTestTopic(): Unit = {
-    testKafkaAdmin.deleteTopic(testTopicName).get
-    while (testKafkaAdmin.isExistTopic(testTopicName)) {
-      testKafkaAdmin.deleteTopic(testTopicName)
-      Thread.sleep(500)
+  def createTestTopic(): Unit = {
+    if (!testAdminClient.isExistTopic(testTopicName)) {
+      testAdminClient.createTopic(testTopicName, testTopicPartitionCount, testTopicReplicationFactor).get
+      while(!testAdminClient.isExistTopic(testTopicName)) {
+        testAdminClient.createTopic(testTopicName, testTopicPartitionCount, testTopicReplicationFactor).get
+        Thread.sleep(500)
+      }
     }
   }
 
-  def createTestTopic(): Unit = {
-    testKafkaAdmin.createTopic(testTopicName, testTopicPartitionCount, testTopicReplicationFactor).get
-    while (!testKafkaAdmin.isExistTopic(testTopicName)) {
-      testKafkaAdmin.createTopic(testTopicName, testTopicPartitionCount, testTopicReplicationFactor).get
-      Thread.sleep(500)
+  def deleteTestTopic(): Unit = {
+    if (testAdminClient.isExistTopic(testTopicName)) {
+      testAdminClient.deleteTopic(testTopicName).get
+      while(testAdminClient.isExistTopic(testTopicName)) {
+        testAdminClient.deleteTopic(testTopicName).get
+        Thread.sleep(500)
+      }
     }
-  }
-}
+  }}

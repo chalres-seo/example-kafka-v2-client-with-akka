@@ -22,14 +22,6 @@ class TestMockKafkaProducer {
   val mockProducerClient = ProducerClient(mockKafkaProducer, new Properties())
 
   @Test
-  def testProduceRecord(): Unit = {
-    mockProducerClient.produceRecord(testProduceRecordSet(0)).get()
-
-    Assert.assertThat(mockKafkaProducer.history().get(0), is(testProduceRecordSet(0)))
-    mockKafkaProducer.history().clear()
-  }
-
-  @Test
   def testProduceRecords(): Unit = {
     mockProducerClient.produceRecords(testProduceRecordSet).foreach(_.get)
 
